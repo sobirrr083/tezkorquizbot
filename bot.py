@@ -1,7 +1,4 @@
 
-BOT_TOKEN = os.getenv("8175665332:AAH8Zbtj7Mbxau_BKspKdeDvGHParj_ewXA")
-OPENAI_API_KEY = os.getenv("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")
-
 import os
 import openai
 from aiogram import Bot, Dispatcher, types
