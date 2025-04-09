@@ -33,7 +33,7 @@ async def start(message: types.Message):
     keyboard.add(types.InlineKeyboardButton("📢 Kanal", url="https://t.me/quiztezkor"))
     keyboard.add(types.InlineKeyboardButton("💬 Guruh", url="https://t.me/sizningguruh"))
     
-    await message.reply("🤖 Assalomu alaykum! Tezkor Quiz chatbotiga xush kelibsiz!", reply_markup=keyboard)
+    await message.reply("🤖 Assalomu alaykum! Tezkor Quiz chatbotiga xush kelibsiz! Menga bemalol savol berishingiz mumkin to'g'ri javob berishga harakat qilaman!", reply_markup=keyboard)
 
 @dp.message_handler()
 async def chat_with_ai(message: types.Message):
