@@ -21,7 +21,8 @@ GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
 if not GEMINI_API_KEY:
     GEMINI_API_KEY = "AIzaSyBMT4QAjOcYRAkc9BcJXclyN7fsq_tE8Ak"
 
-ADMIN_ID = os.getenv("5165462838", "iqdzuix4")  # Admin ID raqami
+ADMIN_ID = os.getenv("ADMIN_ID", "123456789")  # Admin ID raqami
+ADMIN_PASSWORD = os.getenv("ADMIN_PASSWORD", "admin123")  # Default admin password
 
 # Foydalanuvchi tillari va status ma'lumotlari
 user_languages = {}
@@ -56,10 +57,15 @@ def init_db():
     conn.commit()
     conn.close()
 
-# FSM holatlari (familiya va telefon holatlari olib tashlandi)
+# FSM holatlari
 class Registration(StatesGroup):
     first_name = State()
     language = State()
+
+# Admin authentication holatlari
+class AdminAuth(StatesGroup):
+    admin_id = State()
+    password = State()
 
 # Bot va dispatcher
 storage = MemoryStorage()
@@ -98,18 +104,32 @@ def get_user_language(user_id):
     
     return 'uz'  # Default til
 
-# Foydalanuvchi qo'shish (familiya va telefon raqam olib tashlandi)
+# Foydalanuvchi qo'shish
 def register_user(user_id, first_name, username, language='uz'):
     conn = sqlite3.connect('tezkor_quiz.db')
     c = conn.cursor()
     
-    c.execute('''
-    INSERT OR IGNORE INTO users (user_id, first_name, username, language, registered_at, questions_count) 
-    VALUES (?, ?, ?, ?, ?, 0)
-    ''', (user_id, first_name, username, language, datetime.now()))
+    # Avval foydalanuvchini tekshirish
+    c.execute('SELECT * FROM users WHERE user_id = ?', (user_id,))
+    existing_user = c.fetchone()
     
-    # Agar yangi foydalanuvchi qo'shilsa, kunlik statistikani yangilash
-    if c.rowcount > 0:
+    if existing_user:
+        # Foydalanuvchi mavjud, ma'lumotlarini yangilash
+        c.execute('''
+        UPDATE users SET 
+        first_name = ?, 
+        username = ?, 
+        language = ? 
+        WHERE user_id = ?
+        ''', (first_name, username, language, user_id))
+    else:
+        # Yangi foydalanuvchi qo'shish
+        c.execute('''
+        INSERT INTO users (user_id, first_name, username, language, registered_at, questions_count) 
+        VALUES (?, ?, ?, ?, ?, 0)
+        ''', (user_id, first_name, username, language, datetime.now()))
+        
+        # Yangi foydalanuvchi qo'shilsa, kunlik statistikani yangilash
         today = datetime.now().strftime('%Y-%m-%d')
         c.execute('INSERT OR IGNORE INTO daily_stats (date, new_users, total_questions) VALUES (?, 0, 0)', (today,))
         c.execute('UPDATE daily_stats SET new_users = new_users + 1 WHERE date = ?', (today,))
@@ -119,6 +139,7 @@ def register_user(user_id, first_name, username, language='uz'):
     
     # Cache'ga saqlash
     user_languages[user_id] = language
+    return existing_user is not None
 
 # Savol sonini oshirish
 def increment_question_count(user_id):
@@ -174,10 +195,14 @@ async def start(message: types.Message, state: FSMContext):
 # Ism kiritish uchun
 @dp.message_handler(state=Registration.first_name)
 async def process_first_name(message: types.Message, state: FSMContext):
+    if not message.text or message.text.strip() == "":
+        await message.reply("Iltimos, ismingizni to'g'ri kiriting!")
+        return
+        
     async with state.proxy() as data:
         data['first_name'] = message.text
     
-    # Familiya va telefon raqam o'rniga to'g'ridan-to'g'ri til tanlashga o'tadi
+    # Til tanlashga o'tish
     keyboard = types.ReplyKeyboardMarkup(resize_keyboard=True, one_time_keyboard=True)
     keyboard.add(
         types.KeyboardButton("🇺🇿 O'zbekcha"),
@@ -197,10 +222,20 @@ async def process_language(message: types.Message, state: FSMContext):
         language = 'ru'
     elif message.text == "🇬🇧 English":
         language = 'en'
+    elif not (message.text == "🇺🇿 O'zbekcha"):
+        # Agar to'g'ri til formatida bo'lmasa
+        keyboard = types.ReplyKeyboardMarkup(resize_keyboard=True, one_time_keyboard=True)
+        keyboard.add(
+            types.KeyboardButton("🇺🇿 O'zbekcha"),
+            types.KeyboardButton("🇷🇺 Русский"),
+            types.KeyboardButton("🇬🇧 English")
+        )
+        await message.reply("Iltimos, quyidagi tugmalardan birini tanlang:", reply_markup=keyboard)
+        return
     
     async with state.proxy() as data:
-        # Foydalanuvchini ro'yxatdan o'tkazish (familiya va telefon raqam olib tashlandi)
-        register_user(
+        # Foydalanuvchini ro'yxatdan o'tkazish
+        is_existing = register_user(
             message.from_user.id,
             data['first_name'],
             message.from_user.username,
@@ -212,11 +247,18 @@ async def process_language(message: types.Message, state: FSMContext):
     keyboard.add(types.InlineKeyboardButton("📢 Kanal", url="https://t.me/quiztezkor"))
     keyboard.add(types.InlineKeyboardButton("💬 Guruh", url="https://t.me/tezkorquiz_group"))
     
-    greeting = {
-        'uz': "🤖 Tabriklaymiz! Ro'yxatdan muvaffaqiyatli o'tdingiz. Menga bemalol savol berishingiz mumkin, to'g'ri javob berishga harakat qilaman!",
-        'ru': "🤖 Поздравляем! Вы успешно зарегистрировались. Не стесняйтесь задавать мне вопросы, я постараюсь дать правильный ответ!",
-        'en': "🤖 Congratulations! You have successfully registered. Feel free to ask me questions, I'll try to give the correct answer!"
-    }
+    if is_existing:
+        greeting = {
+            'uz': f"🤖 Ma'lumotlaringiz yangilandi! Menga bemalol savol berishingiz mumkin, to'g'ri javob berishga harakat qilaman!",
+            'ru': f"🤖 Ваши данные обновлены! Не стесняйтесь задавать мне вопросы, я постараюсь дать правильный ответ!",
+            'en': f"🤖 Your information has been updated! Feel free to ask me questions, I'll try to give the correct answer!"
+        }
+    else:
+        greeting = {
+            'uz': "🤖 Tabriklaymiz! Ro'yxatdan muvaffaqiyatli o'tdingiz. Menga bemalol savol berishingiz mumkin, to'g'ri javob berishga harakat qilaman!",
+            'ru': "🤖 Поздравляем! Вы успешно зарегистрировались. Не стесняйтесь задавать мне вопросы, я постараюсь дать правильный ответ!",
+            'en': "🤖 Congratulations! You have successfully registered. Feel free to ask me questions, I'll try to give the correct answer!"
+        }
     
     await message.reply(greeting.get(language, greeting['uz']), reply_markup=types.ReplyKeyboardRemove())
     await message.reply("👇", reply_markup=keyboard)
@@ -253,13 +295,39 @@ async def set_language(message: types.Message):
     
     await message.reply(response_text.get(language, response_text['uz']), reply_markup=types.ReplyKeyboardRemove())
 
-# Admin uchun statistika
+# Admin uchun kirish so'rovi
 @dp.message_handler(commands=["admin"])
-async def admin_panel(message: types.Message):
-    if str(message.from_user.id) != ADMIN_ID:
-        await message.reply("Sizda adminlik huquqi yo'q!")
+async def admin_login(message: types.Message):
+    await message.reply("Admin ID raqamini kiriting:")
+    await AdminAuth.admin_id.set()
+
+# Admin ID tekshirish
+@dp.message_handler(state=AdminAuth.admin_id)
+async def process_admin_id(message: types.Message, state: FSMContext):
+    entered_id = message.text.strip()
+    
+    if entered_id != ADMIN_ID:
+        await message.reply("Noto'g'ri ID! Admin operatsiyalari bekor qilindi.")
+        await state.finish()
         return
     
+    async with state.proxy() as data:
+        data['admin_id'] = entered_id
+    
+    await message.reply("Admin parolini kiriting:")
+    await AdminAuth.password.set()
+
+# Admin parolini tekshirish
+@dp.message_handler(state=AdminAuth.password)
+async def process_admin_password(message: types.Message, state: FSMContext):
+    entered_password = message.text.strip()
+    
+    if entered_password != ADMIN_PASSWORD:
+        await message.reply("Noto'g'ri parol! Admin operatsiyalari bekor qilindi.")
+        await state.finish()
+        return
+    
+    # Admin paneliga kirish
     keyboard = types.InlineKeyboardMarkup(row_width=2)
     keyboard.add(
         types.InlineKeyboardButton("📊 Umumiy statistika", callback_data="stats_general"),
@@ -270,14 +338,11 @@ async def admin_panel(message: types.Message):
     )
     
     await message.reply("Admin panelga xush kelibsiz! Kerakli bo'limni tanlang:", reply_markup=keyboard)
+    await state.finish()
 
 # Admin panel callback'lari
 @dp.callback_query_handler(lambda c: c.data.startswith('stats_') or c.data.startswith('users_'))
 async def process_admin_callback(callback_query: types.CallbackQuery):
-    if str(callback_query.from_user.id) != ADMIN_ID:
-        await callback_query.answer("Sizda adminlik huquqi yo'q!", show_alert=True)
-        return
-    
     conn = sqlite3.connect('tezkor_quiz.db')
     c = conn.cursor()
     
@@ -301,7 +366,7 @@ async def process_admin_callback(callback_query: types.CallbackQuery):
         )
         
     elif callback_query.data == "users_list":
-        # Foydalanuvchilar ro'yxati (oxirgi 10 ta) (familiya va telefon raqamsiz)
+        # Foydalanuvchilar ro'yxati (oxirgi 10 ta)
         c.execute('SELECT user_id, first_name, questions_count, language FROM users ORDER BY registered_at DESC LIMIT 10')
         users = c.fetchall()
         
