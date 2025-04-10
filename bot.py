@@ -21,7 +21,7 @@ GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
 if not GEMINI_API_KEY:
     GEMINI_API_KEY = "AIzaSyBMT4QAjOcYRAkc9BcJXclyN7fsq_tE8Ak"
 
-ADMIN_ID = os.getenv("5165462838", "iqdzuix4")  # Admin ID raqami
+ADMIN_ID = os.getenv("ADMIN_ID", "123456789")  # Admin ID raqami
 
 # Foydalanuvchi tillari va status ma'lumotlari
 user_languages = {}
@@ -32,13 +32,11 @@ def init_db():
     conn = sqlite3.connect('tezkor_quiz.db')
     c = conn.cursor()
     
-    # Foydalanuvchilar jadvali
+    # Foydalanuvchilar jadvali (familiya va telefon raqam olib tashlandi)
     c.execute('''
     CREATE TABLE IF NOT EXISTS users (
         user_id INTEGER PRIMARY KEY,
         first_name TEXT,
-        last_name TEXT,
-        phone TEXT,
         username TEXT,
         language TEXT DEFAULT 'uz',
         registered_at TIMESTAMP,
@@ -58,11 +56,9 @@ def init_db():
     conn.commit()
     conn.close()
 
-# FSM holatlari
+# FSM holatlari (familiya va telefon holatlari olib tashlandi)
 class Registration(StatesGroup):
     first_name = State()
-    last_name = State()
-    phone = State()
     language = State()
 
 # Bot va dispatcher
@@ -102,15 +98,15 @@ def get_user_language(user_id):
     
     return 'uz'  # Default til
 
-# Foydalanuvchi qo'shish
-def register_user(user_id, first_name, last_name, phone, username, language='uz'):
+# Foydalanuvchi qo'shish (familiya va telefon raqam olib tashlandi)
+def register_user(user_id, first_name, username, language='uz'):
     conn = sqlite3.connect('tezkor_quiz.db')
     c = conn.cursor()
     
     c.execute('''
-    INSERT OR IGNORE INTO users (user_id, first_name, last_name, phone, username, language, registered_at, questions_count) 
-    VALUES (?, ?, ?, ?, ?, ?, ?, 0)
-    ''', (user_id, first_name, last_name, phone, username, language, datetime.now()))
+    INSERT OR IGNORE INTO users (user_id, first_name, username, language, registered_at, questions_count) 
+    VALUES (?, ?, ?, ?, ?, 0)
+    ''', (user_id, first_name, username, language, datetime.now()))
     
     # Agar yangi foydalanuvchi qo'shilsa, kunlik statistikani yangilash
     if c.rowcount > 0:
@@ -155,7 +151,7 @@ async def start(message: types.Message, state: FSMContext):
     
     if user:
         # Agar foydalanuvchi ro'yxatdan o'tgan bo'lsa
-        language = user[5]
+        language = user[3]  # index o'zgartirildi
         user_languages[user_id] = language
         
         keyboard = types.InlineKeyboardMarkup()
@@ -181,32 +177,7 @@ async def process_first_name(message: types.Message, state: FSMContext):
     async with state.proxy() as data:
         data['first_name'] = message.text
     
-    await message.reply("Familiyangizni kiriting:")
-    await Registration.last_name.set()
-
-# Familiya kiritish uchun
-@dp.message_handler(state=Registration.last_name)
-async def process_last_name(message: types.Message, state: FSMContext):
-    async with state.proxy() as data:
-        data['last_name'] = message.text
-    
-    await message.reply("Telefon raqamingizni kiriting (masalan, +998901234567):")
-    await Registration.phone.set()
-
-# Telefon raqam kiritish uchun
-@dp.message_handler(state=Registration.phone)
-async def process_phone(message: types.Message, state: FSMContext):
-    phone = message.text
-    
-    # Oddiy tekshirish
-    if not (phone.startswith('+') and len(phone) >= 10):
-        await message.reply("Iltimos, to'g'ri telefon raqamini kiriting (masalan, +998901234567):")
-        return
-    
-    async with state.proxy() as data:
-        data['phone'] = phone
-    
-    # Til tanlash
+    # Familiya va telefon raqam o'rniga to'g'ridan-to'g'ri til tanlashga o'tadi
     keyboard = types.ReplyKeyboardMarkup(resize_keyboard=True, one_time_keyboard=True)
     keyboard.add(
         types.KeyboardButton("🇺🇿 O'zbekcha"),
@@ -228,12 +199,10 @@ async def process_language(message: types.Message, state: FSMContext):
         language = 'en'
     
     async with state.proxy() as data:
-        # Foydalanuvchini ro'yxatdan o'tkazish
+        # Foydalanuvchini ro'yxatdan o'tkazish (familiya va telefon raqam olib tashlandi)
         register_user(
             message.from_user.id,
             data['first_name'],
-            data['last_name'],
-            data['phone'],
             message.from_user.username,
             language
         )
@@ -332,16 +301,15 @@ async def process_admin_callback(callback_query: types.CallbackQuery):
         )
         
     elif callback_query.data == "users_list":
-        # Foydalanuvchilar ro'yxati (oxirgi 10 ta)
-        c.execute('SELECT user_id, first_name, last_name, phone, questions_count, language FROM users ORDER BY registered_at DESC LIMIT 10')
+        # Foydalanuvchilar ro'yxati (oxirgi 10 ta) (familiya va telefon raqamsiz)
+        c.execute('SELECT user_id, first_name, questions_count, language FROM users ORDER BY registered_at DESC LIMIT 10')
         users = c.fetchall()
         
         text = "👥 Oxirgi 10 ta foydalanuvchi:\n\n"
         for i, user in enumerate(users, 1):
-            text += f"{i}. {user[1]} {user[2]}\n"
-            text += f"   📱 Tel: {user[3]}\n"
-            text += f"   🌐 Til: {user[5]}\n"
-            text += f"   ❓ Savollar: {user[4]}\n\n"
+            text += f"{i}. {user[1]}\n"
+            text += f"   🌐 Til: {user[3]}\n"
+            text += f"   ❓ Savollar: {user[2]}\n\n"
         
         await callback_query.message.edit_text(text, reply_markup=get_back_keyboard())
         
@@ -360,12 +328,12 @@ async def process_admin_callback(callback_query: types.CallbackQuery):
         
     elif callback_query.data == "users_top":
         # Eng ko'p savol bergan foydalanuvchilar
-        c.execute('SELECT first_name, last_name, questions_count FROM users ORDER BY questions_count DESC LIMIT 10')
+        c.execute('SELECT first_name, questions_count FROM users ORDER BY questions_count DESC LIMIT 10')
         top_users = c.fetchall()
         
         text = "🔝 Eng faol 10 ta foydalanuvchi:\n\n"
         for i, user in enumerate(top_users, 1):
-            text += f"{i}. {user[0]} {user[1]} - {user[2]} ta savol\n"
+            text += f"{i}. {user[0]} - {user[1]} ta savol\n"
         
         await callback_query.message.edit_text(text, reply_markup=get_back_keyboard())
     
