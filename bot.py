@@ -21,8 +21,8 @@ GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
 if not GEMINI_API_KEY:
     GEMINI_API_KEY = "AIzaSyBMT4QAjOcYRAkc9BcJXclyN7fsq_tE8Ak"
 
-ADMIN_ID = os.getenv("ADMIN_ID", "123456789")  # Admin ID raqami
-ADMIN_PASSWORD = os.getenv("ADMIN_PASSWORD", "admin123")  # Default admin password
+ADMIN_ID = os.getenv("AD", "iqdzuix4")  # Admin ID raqami
+ADMIN_PASSWORD = os.getenv("admin", "iqdzuix4new")  # Default admin password
 
 # Foydalanuvchi tillari va status ma'lumotlari
 user_languages = {}
