@@ -31,7 +31,7 @@ async def start(message: types.Message):
     keyboard = types.InlineKeyboardMarkup()
     keyboard.add(types.InlineKeyboardButton("🌐 Sayt", url="https://tezkorquiz.uz"))
     keyboard.add(types.InlineKeyboardButton("📢 Kanal", url="https://t.me/quiztezkor"))
-    keyboard.add(types.InlineKeyboardButton("💬 Guruh", url="https://t.me/sizningguruh"))
+    keyboard.add(types.InlineKeyboardButton("💬 Guruh", url="https://t.me/tezkorquiz_group"))
     
     await message.reply("🤖 Assalomu alaykum! Tezkor Quiz chatbotiga xush kelibsiz! Menga bemalol savol berishingiz mumkin to'g'ri javob berishga harakat qilaman!", reply_markup=keyboard)
 
