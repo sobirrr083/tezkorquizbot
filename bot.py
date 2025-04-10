@@ -21,8 +21,8 @@ GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
 if not GEMINI_API_KEY:
     GEMINI_API_KEY = "AIzaSyBMT4QAjOcYRAkc9BcJXclyN7fsq_tE8Ak"
 
-ADMIN_ID = os.getenv("5165462838", "iqdzuix4")  # Admin ID raqami
-ADMIN_PASSWORD = os.getenv("admincha", "iqdzuix4")  # Default admin password
+ADMIN_ID = os.getenv("ADMIN_ID", "123456789")  # Admin ID raqami
+ADMIN_PASSWORD = os.getenv("ADMIN_PASSWORD", "admin123")  # Default admin password
 
 # Foydalanuvchi tillari va status ma'lumotlari
 user_languages = {}
@@ -33,7 +33,7 @@ def init_db():
     conn = sqlite3.connect('tezkor_quiz.db')
     c = conn.cursor()
     
-    # Foydalanuvchilar jadvali (familiya va telefon raqam olib tashlandi)
+    # Foydalanuvchilar jadvali
     c.execute('''
     CREATE TABLE IF NOT EXISTS users (
         user_id INTEGER PRIMARY KEY,
@@ -41,7 +41,8 @@ def init_db():
         username TEXT,
         language TEXT DEFAULT 'uz',
         registered_at TIMESTAMP,
-        questions_count INTEGER DEFAULT 0
+        questions_count INTEGER DEFAULT 0,
+        registration_complete BOOLEAN DEFAULT 0
     )
     ''')
     
@@ -61,11 +62,6 @@ def init_db():
 class Registration(StatesGroup):
     first_name = State()
     language = State()
-
-# Admin authentication holatlari
-class AdminAuth(StatesGroup):
-    admin_id = State()
-    password = State()
 
 # Bot va dispatcher
 storage = MemoryStorage()
@@ -104,6 +100,18 @@ def get_user_language(user_id):
     
     return 'uz'  # Default til
 
+# Foydalanuvchi ro'yxatdan o'tganligini tekshirish
+def is_user_registered(user_id):
+    conn = sqlite3.connect('tezkor_quiz.db')
+    c = conn.cursor()
+    c.execute('SELECT registration_complete FROM users WHERE user_id = ?', (user_id,))
+    result = c.fetchone()
+    conn.close()
+    
+    if result and result[0] == 1:
+        return True
+    return False
+
 # Foydalanuvchi qo'shish
 def register_user(user_id, first_name, username, language='uz'):
     conn = sqlite3.connect('tezkor_quiz.db')
@@ -119,14 +127,15 @@ def register_user(user_id, first_name, username, language='uz'):
         UPDATE users SET 
         first_name = ?, 
         username = ?, 
-        language = ? 
+        language = ?,
+        registration_complete = 1
         WHERE user_id = ?
         ''', (first_name, username, language, user_id))
     else:
         # Yangi foydalanuvchi qo'shish
         c.execute('''
-        INSERT INTO users (user_id, first_name, username, language, registered_at, questions_count) 
-        VALUES (?, ?, ?, ?, ?, 0)
+        INSERT INTO users (user_id, first_name, username, language, registered_at, questions_count, registration_complete) 
+        VALUES (?, ?, ?, ?, ?, 0, 1)
         ''', (user_id, first_name, username, language, datetime.now()))
         
         # Yangi foydalanuvchi qo'shilsa, kunlik statistikani yangilash
@@ -163,17 +172,17 @@ async def start(message: types.Message, state: FSMContext):
     
     user_id = message.from_user.id
     
-    # Bazadan foydalanuvchini tekshirish
-    conn = sqlite3.connect('tezkor_quiz.db')
-    c = conn.cursor()
-    c.execute('SELECT * FROM users WHERE user_id = ?', (user_id,))
-    user = c.fetchone()
-    conn.close()
-    
-    if user:
+    # Foydalanuvchi ro'yxatdan to'liq o'tganligini tekshirish
+    if is_user_registered(user_id):
         # Agar foydalanuvchi ro'yxatdan o'tgan bo'lsa
-        language = user[3]  # index o'zgartirildi
-        user_languages[user_id] = language
+        language = get_user_language(user_id)
+        
+        # Foydalanuvchi ismini olish
+        conn = sqlite3.connect('tezkor_quiz.db')
+        c = conn.cursor()
+        c.execute('SELECT first_name FROM users WHERE user_id = ?', (user_id,))
+        first_name = c.fetchone()[0]
+        conn.close()
         
         keyboard = types.InlineKeyboardMarkup()
         keyboard.add(types.InlineKeyboardButton("🌐 Sayt", url="https://tezkorquiz.uz"))
@@ -181,16 +190,40 @@ async def start(message: types.Message, state: FSMContext):
         keyboard.add(types.InlineKeyboardButton("💬 Guruh", url="https://t.me/tezkorquiz_group"))
         
         greeting = {
-            'uz': f"🤖 Assalomu alaykum, {user[1]}! Tezkor Quiz chatbotiga qaytganingizdan xursandmiz! Menga bemalol savol berishingiz mumkin, to'g'ri javob berishga harakat qilaman!",
-            'ru': f"🤖 Здравствуйте, {user[1]}! Рады видеть вас снова в чат-боте Tezkor Quiz! Не стесняйтесь задавать мне вопросы, я постараюсь дать правильный ответ!",
-            'en': f"🤖 Hello, {user[1]}! Welcome back to Tezkor Quiz chatbot! Feel free to ask me questions, I'll try to give the correct answer!"
+            'uz': f"🤖 Assalomu alaykum, {first_name}! Tezkor Quiz chatbotiga qaytganingizdan xursandmiz! Menga bemalol savol berishingiz mumkin, to'g'ri javob berishga harakat qilaman!",
+            'ru': f"🤖 Здравствуйте, {first_name}! Рады видеть вас снова в чат-боте Tezkor Quiz! Не стесняйтесь задавать мне вопросы, я постараюсь дать правильный ответ!",
+            'en': f"🤖 Hello, {first_name}! Welcome back to Tezkor Quiz chatbot! Feel free to ask me questions, I'll try to give the correct answer!"
         }
         
         await message.reply(greeting.get(language, greeting['uz']), reply_markup=keyboard)
     else:
-        # Ro'yxatdan o'tish uchun
-        await message.reply("🤖 Assalomu alaykum! Tezkor Quiz chatbotiga xush kelibsiz! Iltimos, ro'yxatdan o'tish uchun ismingizni kiriting:")
-        await Registration.first_name.set()
+        # Foydalanuvchi bazada bor yo'qligini tekshirish
+        conn = sqlite3.connect('tezkor_quiz.db')
+        c = conn.cursor()
+        c.execute('SELECT * FROM users WHERE user_id = ?', (user_id,))
+        existing_user = c.fetchone()
+        conn.close()
+        
+        if existing_user:
+            # Foydalanuvchi mavjud, lekin ro'yxatdan o'tish yakunlanmagan
+            # To'g'ridan-to'g'ri til tanlashga o'tkazamiz
+            keyboard = types.ReplyKeyboardMarkup(resize_keyboard=True, one_time_keyboard=True)
+            keyboard.add(
+                types.KeyboardButton("🇺🇿 O'zbekcha"),
+                types.KeyboardButton("🇷🇺 Русский"),
+                types.KeyboardButton("🇬🇧 English")
+            )
+            
+            await message.reply("Iltimos, botdan foydalanish uchun tilni tanlang:", reply_markup=keyboard)
+            await Registration.language.set()
+            
+            # Ismni saqlash
+            async with state.proxy() as data:
+                data['first_name'] = existing_user[1]  # Bazadagi mavjud ism
+        else:
+            # Ro'yxatdan o'tish uchun
+            await message.reply("🤖 Assalomu alaykum! Tezkor Quiz chatbotiga xush kelibsiz! Iltimos, ro'yxatdan o'tish uchun ismingizni kiriting:")
+            await Registration.first_name.set()
 
 # Ism kiritish uchun
 @dp.message_handler(state=Registration.first_name)
@@ -298,33 +331,31 @@ async def set_language(message: types.Message):
 # Admin uchun kirish so'rovi
 @dp.message_handler(commands=["admin"])
 async def admin_login(message: types.Message):
-    await message.reply("Admin ID raqamini kiriting:")
-    await AdminAuth.admin_id.set()
+    # Admin uchun foydalanish yo'riqnomasi
+    await message.reply(
+        "Admin panelga kirish uchun quyidagi formatda ID va parolni kiriting:\n\n"
+        "/admin ID PAROL\n\n"
+        "Masalan: /admin 123456789 admin123"
+    )
 
-# Admin ID tekshirish
-@dp.message_handler(state=AdminAuth.admin_id)
-async def process_admin_id(message: types.Message, state: FSMContext):
-    entered_id = message.text.strip()
+# Admin autentifikatsiyasi (ID va parolni bir vaqtda kirish)
+@dp.message_handler(lambda message: message.text.startswith('/admin '))
+async def process_admin_login(message: types.Message):
+    # /admin buyrug'i va parametrlarni ajratish
+    parts = message.text.split()
     
-    if entered_id != ADMIN_ID:
-        await message.reply("Noto'g'ri ID! Admin operatsiyalari bekor qilindi.")
-        await state.finish()
+    # Agar parametrlar soni to'g'ri bo'lmasa
+    if len(parts) != 3:
+        await message.reply("Noto'g'ri format. /admin ID PAROL formatida kiriting.")
         return
     
-    async with state.proxy() as data:
-        data['admin_id'] = entered_id
+    # ID va parolni olish
+    entered_id = parts[1].strip()
+    entered_password = parts[2].strip()
     
-    await message.reply("Admin parolini kiriting:")
-    await AdminAuth.password.set()
-
-# Admin parolini tekshirish
-@dp.message_handler(state=AdminAuth.password)
-async def process_admin_password(message: types.Message, state: FSMContext):
-    entered_password = message.text.strip()
-    
-    if entered_password != ADMIN_PASSWORD:
-        await message.reply("Noto'g'ri parol! Admin operatsiyalari bekor qilindi.")
-        await state.finish()
+    # ID va parolni tekshirish
+    if entered_id != ADMIN_ID or entered_password != ADMIN_PASSWORD:
+        await message.reply("Noto'g'ri ID yoki parol! Admin operatsiyalari bekor qilindi.")
         return
     
     # Admin paneliga kirish
@@ -338,7 +369,6 @@ async def process_admin_password(message: types.Message, state: FSMContext):
     )
     
     await message.reply("Admin panelga xush kelibsiz! Kerakli bo'limni tanlang:", reply_markup=keyboard)
-    await state.finish()
 
 # Admin panel callback'lari
 @dp.callback_query_handler(lambda c: c.data.startswith('stats_') or c.data.startswith('users_'))
@@ -373,6 +403,7 @@ async def process_admin_callback(callback_query: types.CallbackQuery):
         text = "👥 Oxirgi 10 ta foydalanuvchi:\n\n"
         for i, user in enumerate(users, 1):
             text += f"{i}. {user[1]}\n"
+            text += f"   🆔 ID: {user[0]}\n"
             text += f"   🌐 Til: {user[3]}\n"
             text += f"   ❓ Savollar: {user[2]}\n\n"
         
@@ -511,8 +542,8 @@ async def chat_with_ai(message: types.Message):
         user = c.fetchone()
         conn.close()
         
-        if not user:
-            # Agar foydalanuvchi topilmasa, ro'yxatdan o'tishni taklif qilish
+        if not user or user[6] == 0:  # registration_complete tekshirish
+            # Agar foydalanuvchi topilmasa yoki ro'yxatdan o'tish yakunlanmagan bo'lsa
             await message.reply("Iltimos, botdan foydalanish uchun /start buyrug'ini bosing va ro'yxatdan o'ting!")
             return
         
